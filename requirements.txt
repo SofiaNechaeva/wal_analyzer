@@ -1,0 +1,7 @@
+psycopg2-binary
+python-dateutil
+pandas
+matplotlib
+seaborn
+plotly
+reportlab

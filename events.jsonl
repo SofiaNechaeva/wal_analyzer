@@ -1,0 +1,11 @@
+{"timestamp": "2025-11-14 13:51:05.546839+00", "xid": 771, "schema": "public", "table": "just_text", "operation": "insert", "old_data": null, "new_data": [14, "топор", "2025-11-14 13:51:05.546571"]}
+{"timestamp": "2025-11-14 14:04:40.21873+00", "xid": 772, "schema": "public", "table": "just_text", "operation": "insert", "old_data": null, "new_data": [15, "батарейки", "2025-11-14 14:04:40.21756"]}
+{"timestamp": "2025-11-14 14:04:46.190282+00", "xid": 773, "schema": "public", "table": "just_text", "operation": "insert", "old_data": null, "new_data": [16, "плавать", "2025-11-14 14:04:46.189975"]}
+{"timestamp": "2025-11-14 14:04:50.234958+00", "xid": 774, "schema": "public", "table": "just_text", "operation": "insert", "old_data": null, "new_data": [17, "нейросеть", "2025-11-14 14:04:50.234604"]}
+{"timestamp": "2025-11-14 14:05:16.450236+00", "xid": 775, "schema": "public", "table": "just_text", "operation": "insert", "old_data": null, "new_data": [18, "bvgekmcs", "2025-11-14 14:05:16.449949"]}
+{"timestamp": "2025-11-14 14:06:26.140819+00", "xid": 776, "schema": "public", "table": "just_text", "operation": "update", "old_data": [18], "new_data": [18, "обидчивый", "2025-11-14 14:05:16.449949"]}
+{"timestamp": "2025-11-14 14:07:39.524293+00", "xid": 777, "schema": "public", "table": "events", "operation": "insert", "old_data": null, "new_data": [4, "обыск", "2025-11-14 14:07:39.517053"]}
+{"timestamp": "2025-11-14 14:08:53.846294+00", "xid": 778, "schema": "public", "table": "events", "operation": "delete", "old_data": [4], "new_data": null}
+{"timestamp": "2025-11-14 14:09:30.982344+00", "xid": 779, "schema": "public", "table": "events", "operation": "insert", "old_data": null, "new_data": [5, "дюна", "2025-11-14 14:09:30.981998"]}
+{"timestamp": "2025-11-14 14:17:43.189971+00", "xid": 780, "schema": "public", "table": "just_text", "operation": "insert", "old_data": null, "new_data": [19, "душонка по дешевке", "2025-11-14 14:17:43.189433"]}
+{"timestamp": "2025-11-14 14:29:23.654759+00", "xid": 781, "schema": "public", "table": "just_text", "operation": "insert", "old_data": null, "new_data": [20, "флюиды", "2025-11-14 14:29:23.652879"]}
