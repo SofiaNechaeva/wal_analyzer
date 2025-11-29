@@ -480,9 +480,3 @@ class WalAnalyzerApp:
             traceback.print_exc()
 
 
-if __name__ == "__main__":
-    init_sqlite()
-    root = Tk()
-    app = WalAnalyzerApp(root)
-    root.mainloop()
-
