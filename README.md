@@ -7,8 +7,8 @@
 ## 📥 Установка приложения
 Скачайте проект с GitHub:
 ```bash
-git clone https://github.com/<ваш_репозиторий>.git
-cd <ваш_репозиторий>
+git clone https://github.com/SofiaNechaeva/wal_analyzer.git
+cd wal_analyzer
 
 ```
 
