@@ -4,11 +4,19 @@ import psycopg2
 from tkinter import *
 from tkinter import ttk
 from logical_slot import LogicalSlot
-from controller import main_function 
+from controller import main_function, create_slot, worker_fetch_loop, worker_stop_correct, run_analysis_core
 from logical_slot import test_connection
 from logical_slot import get_tables
 from metabd import init_sqlite, load_connections_data, save_connection
 import signal, sys
+import traceback
+import random
+import threading
+import time
+import queue
+import psycopg2
+import gc
+import sqlite3
 
 def handle_exit(sig, frame):
     print("Завершение программы...")
@@ -21,16 +29,15 @@ class WalAnalyzerApp:
     
     def __init__(self, root):
         self.root = root
+        self.result_queue = queue.Queue()
         self.db_config = {} 
         self.root.title("Анализатор WAL")
         def on_close():
             print("Закрытие приложения...")
-            import gc
-            import sqlite3
             for obj in gc.get_objects():
                 if isinstance(obj, sqlite3.Connection):
                     print("Открытое соединение SQLite:", obj)
-            import psycopg2
+
             for obj in gc.get_objects():
                 if isinstance(obj, psycopg2.extensions.connection):
                     if not obj.closed:  # 0 = открыто, 1 = закрыто
@@ -69,7 +76,8 @@ class WalAnalyzerApp:
 
     def on_tab_changed(self, event):
         tab = event.widget.tab(event.widget.select(), "text")
-        if tab == "Анализы":
+        if tab == "Подключения":
+            print('Нет, ну я пробывал')
             self.load_connections()
 
     # --- генерация имени подключения ---
@@ -130,6 +138,10 @@ class WalAnalyzerApp:
     def load_tables(self):
         tables = get_tables(self.db_config)
 
+        # убираем служебную таблицу из списка
+        tables = [t for t in tables if t != "data_change_log"]
+
+        # заполняем Listbox
         self.tables_list.delete(0, END)
         for t in tables:
             self.tables_list.insert(END, t)
@@ -138,7 +150,6 @@ class WalAnalyzerApp:
         self.history_table_choice['values'] = tables
         if tables:
             self.history_table_choice.current(0)
-            
 
     # --- вкладка "Подключения" ---
     def init_ans_tab(self):
@@ -247,9 +258,15 @@ class WalAnalyzerApp:
         self.history_table_choice = ttk.Combobox(self.frame_history, state="readonly")
         self.history_table_choice.grid(row=0, column=1, sticky="we", padx=5, pady=5)
 
-        ttk.Label(self.frame_history, text="Значения ключей через ;:").grid(row=1, column=0, sticky=W, padx=5, pady=5)
+        ttk.Label(self.frame_history, text="Значения ключей через ;").grid(row=1, column=0, sticky=W, padx=5, pady=5)
         self.history_value_entry = ttk.Entry(self.frame_history)
         self.history_value_entry.grid(row=1, column=1, sticky="we", padx=5, pady=5)
+        
+        # Новое поле для маскирования
+        ttk.Label(self.frame_history, text="Поля для маскирования через ;").grid(row=2, column=0, sticky=W, padx=5, pady=5)
+        self.history_mask_entry = ttk.Entry(self.frame_history)
+        self.history_mask_entry.grid(row=2, column=1, sticky="we", padx=5, pady=5)
+
 
         self.frame_history.columnconfigure(1, weight=1)
 
@@ -344,6 +361,8 @@ class WalAnalyzerApp:
         history_table = self.history_table_choice.get() or (tables[0] if tables else "")
         history_value = self.history_value_entry.get()
 
+       
+
         # плагин: по умолчанию test_decoding
         plugin = (self.plugin_choice.get() or "").strip() or "wal2json"
 
@@ -357,12 +376,12 @@ class WalAnalyzerApp:
             "summary_html": bool(self.html_var.get()),
             "history_table": history_table,
             "history_value": history_value,
+            "masks_fields": self.history_mask_entry.get(),
             "save_target": self.save_target.get(),
             "plugin": plugin,                        # "wal2json" | "test_decoding"
             "disk_path": self.disk_entry.get(),      # может быть пустым, если сохранение в Postgres
         }
 
-        print(slot_config)
         return slot_config
 
 
@@ -372,6 +391,7 @@ class WalAnalyzerApp:
             self.tree_conn.delete(item)
         for item in self.tree_res.get_children():
             self.tree_res.delete(item)
+
 
         rows = load_connections_data(self.db_config)
 
@@ -390,21 +410,74 @@ class WalAnalyzerApp:
                                     values=(row["slot_name"], row["analysis_type"], row["date"],
                                             row["plugin"], row["db"], row["result"]))
 
-    def run_analysis(self):
-        self.slot_config = self.collect_analysis_params()
+    # def run_analysis(self):
+    #     def random_color():
+    #         # генерируем три компоненты от 0 до 255
+    #         r = random.randint(0, 255)
+    #         g = random.randint(0, 255)
+    #         b = random.randint(0, 255)
+    #         # переводим в hex-строку
+    #         return f"#{r:02x}{g:02x}{b:02x}"
+    #     self.slot_config = self.collect_analysis_params()
+    #     try:
+    #         save_connection(self.db_config, self.slot_config)
+    #         print("Запись в SQLite прошла успешно")
+    #     except Exception as e:
+    #         self.status_label.config(text=f"Ошибка анализа: {e}")
+    #         print("Ошибка SQLite:", e)
+
+    #     try:
+    #         main_function(self.slot_config['slot_name'])
+    #         self.load_connections()
+    #         color = random_color()
+    #         self.status_label.config(text="Слот успешно создан!", fg=color)
+    #     except Exception as e:
+    #         # self.msg_var_slot.set(f"Ошибка анализа: {e}")
+    #         self.status_label.config(text=f"Ошибка анализа: {e}")
+    #         traceback.print_exc() 
+    def check_queue(self):
         try:
-            save_connection(self.db_config, self.slot_config)
-            print("Запись в SQLite прошла успешно")
-        except Exception as e:
-            print("Ошибка SQLite:", e)
+            result = self.result_queue.get_nowait()
+            worker_stop_correct(self.slot_config, self.analysis, result)
+        except queue.Empty:
+            print("Очередь пуста — поток ничего не положил")
+            worker_stop_correct(self.slot_config, self.analysis, None)
+
+
+    def run_analysis(self):
+        def random_color():
+            # генерируем три компоненты от 0 до 255
+            r = random.randint(0, 255)
+            g = random.randint(0, 255)
+            b = random.randint(0, 255)
+            # переводим в hex-строку
+            return f"#{r:02x}{g:02x}{b:02x}"
+        self.slot_config = self.collect_analysis_params()
+        print(self.slot_config)
 
         try:
-            main_function(self.slot_config['slot_name'])
+            save_connection(self.db_config, self.slot_config)
+            # self.analysis = create_slot(self.slot_config['slot_name'])
+            
+
+            # worker_thread = threading.Thread(
+            #     target=worker_fetch_loop,
+            #     args=(self.result_queue, self.analysis, self.slot_config, self.slot_config["period_hours"], 30), 
+            # )
+            # worker_thread.start()
+            # self.root.after(self.slot_config["period_hours"]*1000+1000, self.check_queue)
+
             self.load_connections()
-            self.status_label.config(text="Слот успешно создан!")
+            color = random_color()
+            self.status_label.config(text="Слот успешно создан!", fg=color)
+
+            run_analysis_core(self.db_config, self.slot_config, self.result_queue)
+
+
         except Exception as e:
             # self.msg_var_slot.set(f"Ошибка анализа: {e}")
-            print(f"Ошибка анализа: {e}")
+            self.status_label.config(text=f"Ошибка анализа: {e}")
+            traceback.print_exc()
 
 
 if __name__ == "__main__":

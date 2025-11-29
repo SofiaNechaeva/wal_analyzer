@@ -28,6 +28,7 @@ def init_sqlite():
             summary_html INTEGER,
             history_table TEXT,
             history_value TEXT,
+            masks_fields TEXT,
             save_target TEXT,
             plugin TEXT,
             disk_path TEXT,
@@ -48,13 +49,13 @@ def save_connection(db_config: dict, slot_config: dict):
             tables, period_hours, operations,
             slot_name, analysis_type,
             summary_pdf, summary_html,
-            history_table, history_value,
+            history_table, history_value, masks_fields,
             save_target, plugin, disk_path, result
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         db_config["dbname"],
         db_config["user"],
-        db_config["password"],
+        db_config["password"],   
         db_config["host"],
         db_config["port"],
         json.dumps(slot_config["tables"]),       # список таблиц → JSON
@@ -66,6 +67,7 @@ def save_connection(db_config: dict, slot_config: dict):
         int(slot_config["summary_html"]),
         slot_config["history_table"],
         slot_config["history_value"],
+        slot_config["masks_fields"],
         slot_config["save_target"],
         slot_config["plugin"],
         slot_config["disk_path"],
@@ -92,6 +94,26 @@ def get_pg_slots(db_config):
     return slots
 
 
+def get_table_columns(db_config, table_name, schema="public"):
+    conn = psycopg2.connect(
+        dbname=db_config["dbname"],
+        user=db_config["user"],
+        password=db_config["password"],
+        host=db_config.get("host", "localhost"),
+        port=db_config.get("port", 5432)
+    )
+    cur = conn.cursor()
+    cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = %s AND table_name = %s
+            ORDER BY ordinal_position;
+        """, (schema, table_name))
+    columns = [row[0] for row in cur.fetchall()]
+    conn.close()
+    return columns
+
+
 def drop_current_slot(db_config, slot_name):
     # --- Удаляем слот из PostgreSQL ---
     conn_pg = psycopg2.connect(**db_config)
@@ -107,15 +129,15 @@ def drop_current_slot(db_config, slot_name):
         conn_pg.close()
 
 
-def clear_sql(result, slot_name):
+def clear_sql(result, slot_name, analysis_type: str):
     # --- Очищаем данные слота в SQLite ---
     conn_sqlite = sqlite3.connect("wal_analyzer.db")
     cur_sqlite = conn_sqlite.cursor()
-
-    cur_sqlite.execute("DELETE FROM agg_operations WHERE slot_name = ?;", (slot_name,))
-    cur_sqlite.execute("DELETE FROM agg_tables WHERE slot_name = ?;", (slot_name,))
-    cur_sqlite.execute("DELETE FROM agg_activity WHERE slot_name = ?;", (slot_name,))
-    cur_sqlite.execute("DELETE FROM agg_sizes WHERE slot_name = ?;", (slot_name,))
+    if analysis_type == "summary":
+        cur_sqlite.execute("DELETE FROM agg_operations WHERE slot_name = ?;", (slot_name,))
+        cur_sqlite.execute("DELETE FROM agg_tables WHERE slot_name = ?;", (slot_name,))
+        cur_sqlite.execute("DELETE FROM agg_activity WHERE slot_name = ?;", (slot_name,))
+        cur_sqlite.execute("DELETE FROM agg_sizes WHERE slot_name = ?;", (slot_name,))
 
     cur_sqlite.execute("""
         UPDATE connections
@@ -285,8 +307,110 @@ def aggregate_jsonl_to_sqlite(
     conn.commit()
     conn.close()
 
-    # # После агрегации можно удалять исходный JSONL
-    # try:
-    #     os.remove(jsonl_path)
-    # except OSError as e:
-    #     print(f"Не удалось удалить {jsonl_path}: {e}")
+    # После агрегации можно удалять исходный JSONL
+    try:
+        os.remove(jsonl_path)
+    except OSError as e:
+        print(f"Не удалось удалить {jsonl_path}: {e}")
+
+
+def save_wal_changes_to_log(db_config, slot_name, filters=None):
+    """
+    Получает изменения из логического слота (wal2json) и пишет их в таблицу data_change_log.
+    filters = {"tables": [...], "ops": ["INSERT","UPDATE","DELETE"]}
+    """
+
+    conn = psycopg2.connect(
+        dbname=db_config["dbname"],
+        user=db_config["user"],
+        password=db_config["password"],
+        host=db_config.get("host", "localhost"),
+        port=db_config.get("port", 5432)
+    )
+    cur = conn.cursor()
+
+    # создаём таблицу для лога, если её нет
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS data_change_log (
+            id SERIAL PRIMARY KEY,
+            table_name TEXT,
+            operation TEXT,
+            old_data JSONB,
+            new_data JSONB,
+            xid BIGINT,
+            ts TIMESTAMPTZ,
+            schema_name TEXT
+        );
+    """)
+    conn.commit()
+
+    # получаем изменения из слота
+    cur.execute("""
+        SELECT data
+        FROM pg_logical_slot_get_changes(
+            %s, NULL, NULL,
+            'format-version', '1',
+            'include-timestamp', '1',
+            'include-xids', '1',
+            'include-schemas', '1',
+            'include-types', '1',
+            'include-transaction', '1'
+        );
+    """, (slot_name,))
+
+    rows = cur.fetchall()
+    print(rows)
+    for row in rows:
+        print(row)
+        try:
+            ev = json.loads(row[0])
+        except Exception:
+            continue
+
+        xid = ev.get("xid")
+        ts = ev.get("timestamp")
+
+        for change in ev.get("change", []):
+            table = change.get("table")
+            op = change.get("kind").lower()
+            schema = change.get("schema")
+
+            # фильтрация
+            if filters:
+                if filters.get("tables") and table not in filters["tables"]:
+                    continue
+                if filters.get("ops") and op.upper() not in filters["ops"]:
+                    continue
+
+            # нормализуем old/new
+            if op == "insert":
+                old_data = None
+                new_data = dict(zip(change["columnnames"], change["columnvalues"]))
+            elif op == "update":
+                old_data = dict(zip(change.get("oldkeys", {}).get("keynames", []),
+                                    change.get("oldkeys", {}).get("keyvalues", [])))
+                new_data = dict(zip(change["columnnames"], change["columnvalues"]))
+            elif op == "delete":
+                old_data = dict(zip(change.get("oldkeys", {}).get("keynames", []),
+                                    change.get("oldkeys", {}).get("keyvalues", [])))
+                new_data = None
+            else:
+                continue
+
+            cur.execute("""
+                INSERT INTO data_change_log (table_name, operation, old_data, new_data, xid, ts, schema_name)
+                VALUES (%s, %s, %s::jsonb, %s::jsonb, %s, %s::timestamptz, %s);
+            """, (
+                table,
+                op.upper(),
+                json.dumps(old_data) if old_data else None,
+                json.dumps(new_data) if new_data else None,
+                xid,
+                ts,
+                schema
+            ))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return "Изменения записаны в data_change_log"

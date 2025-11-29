@@ -69,6 +69,8 @@ class LogicalSlot:
         if self.slot_config["history_value"]:
             self.ids = [v.strip() for v in self.slot_config["history_value"].split(";") if v.strip()]
 
+        if self.slot_config["masks_fields"]:
+            self.masks_fields = [f.strip() for f in self.slot_config["masks_fields"].split(";") if f.strip()]
 
         print(self.port, self.slot_name, self.plugin)
         
@@ -123,8 +125,10 @@ class LogicalSlot:
                     );
                 """, (self.slot_name,))
 
+                wrote_any = False
                 with open(output_file, "a", encoding="utf-8") as f:
                     for row in cur:
+                        wrote_any = True
                         try:
                             change = json.loads(row[0])
                             for tx in change.get('change', []):
@@ -161,6 +165,9 @@ class LogicalSlot:
                                 f.write(json.dumps(event, ensure_ascii=False) + "\n")
                         except Exception as e:
                             print(f"Ошибка при разборе события: {e}")
+                    # если не было ни одной строки — создаём пустую метку
+                    if not wrote_any:
+                        f.write("")  
 
         # если режим summary — сразу агрегируем
         if self.analysis_type == "summary":
@@ -174,23 +181,27 @@ class LogicalSlot:
         if self.analysis_type == "history":
             try:
                 builder = ReportBuilder(self.slot_config)
+                columns = get_table_columns(self.db_config, self.slot_config["history_table"])
                 result = builder.aggregate_jsonl_to_pdfs(
                     "events.jsonl",
                     self.slot_name,
                     self.slot_config["history_table"],
                     self.ids,
-                    os.getcwd()
+                    os.getcwd(),
+                    columns,
+                    self.masks_fields
+                    
                 )
                 return f"reports pdf in {result}"
             except Exception as e:
                 print(f"Ошибка в блоке history: {e}")
             
-        return 0
+        return 1
 
 
     def drop_slot(self, result: str):
         drop_current_slot(self.db_config, self.slot_name)
-        clear_sql(result, self.slot_name)
+        clear_sql(result, self.slot_name, self.analysis_type)
 
     def get_summary(self):
         try:
@@ -221,36 +232,38 @@ class LogicalSlot:
             print(f"Ошибка в блоке summary: {e}")
     
     def fetch_events_full_save(self):
-
-        # формируем имя файла
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        # расширение зависит от плагина
-        if self.plugin == "wal2json":
-            ext = "jsonl"
-        elif self.plugin == "test_decoding":
-            ext = "txt"
-        else:
-            raise ValueError(f"Неизвестный плагин: {self.plugin}")
-        
-        filename = f"{self.slot_name}_{timestamp}.{ext}"
-        output_file = os.path.join(self.slot_config["disk_path"], filename)
-
         # фильтры из конфигурации
         filters = {
-            "tables": self.slot_config.get("tables") or [],
-            "ops": self.slot_config.get("operations") or ["INSERT","UPDATE","DELETE"]
-        }
+                "tables": self.slot_config.get("tables") or [],
+                "ops": self.slot_config.get("operations") or ["INSERT","UPDATE","DELETE"]
+            }
+        if self.slot_config["save_target"] == "disk":
+            # формируем имя файла
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # выбор плагина
-        if self.plugin == "wal2json":
-            result = self.fetch_events(output_file=output_file, filters=filters)
-        elif self.plugin == "test_decoding":
-            result = self.fetch_test_decoding(output_file=output_file, filters=filters)
+            # расширение зависит от плагина
+            if self.plugin == "wal2json":
+                ext = "jsonl"
+            elif self.plugin == "test_decoding":
+                ext = "txt"
+            else:
+                raise ValueError(f"Неизвестный плагин: {self.plugin}")
+            
+            filename = f"{self.slot_name}_{timestamp}.{ext}"
+            output_file = os.path.join(self.slot_config["disk_path"], filename)
 
-        if result == 1:
-            result = f"files .{ext} in {self.slot_config['disk_path']}"
-            return result
+            # выбор плагина
+            if self.plugin == "wal2json":
+                result = self.fetch_events(output_file=output_file, filters=filters)
+            elif self.plugin == "test_decoding":
+                result = self.fetch_test_decoding(output_file=output_file, filters=filters)
+            print("в правде ", result)
+            if result == 1:
+                result = f"files .{ext} in {self.slot_config['disk_path']}"
+        else:
+            result = save_wal_changes_to_log(self.db_config, self.slot_name, filters)
+        return result 
+
 
     def fetch_test_decoding(self, output_file: str, filters: dict = None):
         with self._connect() as conn:

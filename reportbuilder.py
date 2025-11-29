@@ -12,7 +12,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 import json
 import os
 
-pdfmetrics.registerFont(TTFont('DejaVuSans', 'DejaVuSans.ttf'))
+pdfmetrics.registerFont(TTFont("Arial", r"C:\Windows\Fonts\arial.ttf"))
 
 class ReportBuilder:
     def __init__(self, slot_config: dict, db_path="wal_analyzer.db"):
@@ -26,6 +26,9 @@ class ReportBuilder:
             SELECT operation, count FROM agg_operations
             WHERE slot_name = ?
         """, self.conn, params=(self.slot_name,))
+        if df.empty:
+            # ничего не добавляем, просто выходим
+            return
         fig, ax = plt.subplots()
         ax.pie(df['count'], labels=df['operation'], autopct='%1.1f%%', startangle=90)
         ax.set_title("Операции")
@@ -40,6 +43,9 @@ class ReportBuilder:
             WHERE slot_name = ?
             ORDER BY bucket_start
         """, self.conn, params=(self.slot_name,))
+        if df.empty:
+            # ничего не добавляем, просто выходим
+            return
         df['time'] = pd.to_datetime(df['bucket_start'], unit='s')
         fig, ax = plt.subplots()
         ax.plot(df['time'], df['count'])
@@ -56,6 +62,9 @@ class ReportBuilder:
             SELECT schema, table_name, count FROM agg_tables
             WHERE slot_name = ?
         """, self.conn, params=(self.slot_name,))
+        if df.empty:
+            # ничего не добавляем, просто выходим
+            return
         pivot = df.pivot(index='schema', columns='table_name', values='count').fillna(0)
         fig, ax = plt.subplots(figsize=(8, 6))
         sns.heatmap(pivot, annot=True, fmt=".0f", cmap="YlGnBu", ax=ax)
@@ -70,6 +79,9 @@ class ReportBuilder:
             SELECT size_bucket, count FROM agg_sizes
             WHERE slot_name = ?
         """, self.conn, params=(self.slot_name,))
+        if df.empty:
+            # ничего не добавляем, просто выходим
+            return
         fig, ax = plt.subplots()
         ax.bar(df['size_bucket'], df['count'], color='skyblue')
         ax.set_title("Размеры событий")
@@ -82,21 +94,63 @@ class ReportBuilder:
 
     def save_pdf(self, filename="report.pdf"):
         with PdfPages(filename) as pdf:
-            for fig in self.plots:
+            if not self.plots:  # если нет ни одной фигуры
+                fig, ax = plt.subplots()
+                ax.text(0.5, 0.5, "Изменений, соответствующих фильтрам, не было",
+                        ha='center', va='center', fontsize=12)
+                ax.axis("off")
+                ax.set_title("Отчёт")
                 pdf.savefig(fig)
                 plt.close(fig)
+            else:
+                for fig in self.plots:
+                    pdf.savefig(fig)
+                    plt.close(fig)
+
 
     def save_html(self, filename="report.html"):
-        # Собираем все фигуры в один HTML
         html_parts = []
-        for fig in self.plotly_figs:
-            html_parts.append(pio.to_html(fig, full_html=False, include_plotlyjs='cdn'))
-        # Оборачиваем в единый HTML
-        html_str = "<html><head><meta charset='utf-8'></head><body>" + "\n".join(html_parts) + "</body></html>"
+        if not self.plotly_figs:  # если нет ни одной фигуры
+            html_parts.append("<div style='text-align:center; font-size:16px;'>"
+                            "Изменений, соответствующих фильтрам, не было</div>")
+        else:
+            for fig in self.plotly_figs:
+                html_parts.append(pio.to_html(fig, full_html=False, include_plotlyjs='cdn'))
+
+        html_str = ("<html><head><meta charset='utf-8'></head><body>"
+                    + "\n".join(html_parts) +
+                    "</body></html>")
         with open(filename, "w", encoding="utf-8") as f:
             f.write(html_str)
 
-    def aggregate_jsonl_to_pdfs(self, jsonl_path: str, slot_name: str, table: str, ids: list, output_dir: str):
+
+    def mask_fields(self, data: dict, masks_fields: list) -> dict:
+        """
+        Маскирует значения словаря по правилам:
+        - Заглавные буквы и цифры → '#'
+        - Строчные буквы → '*'
+        - Знаки и служебные символы остаются как есть
+        """
+        def mask_value(val: str) -> str:
+            if not isinstance(val, str):
+                return val
+            masked = []
+            for ch in val:
+                if ch.isupper() or ch.isdigit():
+                    masked.append('#')
+                elif ch.islower():
+                    masked.append('*')
+                else:
+                    masked.append(ch)
+            return "".join(masked)
+
+        return {
+            k: mask_value(v) if k in masks_fields else v
+            for k, v in data.items()
+        }
+
+    def aggregate_jsonl_to_pdfs(self, jsonl_path: str, slot_name: str, table: str,
+                            ids: list, output_dir: str, columns: list, masks_fields: list):
         # создаём canvas для каждого Id
         canvases = {}
         positions = {}
@@ -106,7 +160,7 @@ class ReportBuilder:
             filepath = os.path.join(output_dir, filename)
 
             c = canvas.Canvas(filepath, pagesize=A4)
-            c.setFont("DejaVuSans", 12)
+            c.setFont("Arial", 12)  # стандартный шрифт, точно работает
             width, height = A4
             y = height - 50
 
@@ -120,7 +174,7 @@ class ReportBuilder:
             canvases[id_value] = (c, width, height)
             positions[id_value] = y
 
-        # читаем JSONL построчно
+        # читаем JSONL построчно один раз
         with open(jsonl_path, "r", encoding="utf-8") as f:
             for line in f:
                 try:
@@ -131,11 +185,25 @@ class ReportBuilder:
                 if ev.get("table") != table:
                     continue
 
-                old_data = ev.get("old_data") or {}
-                new_data = ev.get("new_data") or {}
+                old_data_list = ev.get("old_data") or []
+                new_data_list = ev.get("new_data") or []
+                # превращаем списки в словари
+                old_data = dict(zip(columns, old_data_list)) if old_data_list else {}
+                new_data = dict(zip(columns, new_data_list)) if new_data_list else {}
 
+                # маскируем
+                old_data = self.mask_fields(old_data, masks_fields)
+                new_data = self.mask_fields(new_data, masks_fields)
+                print(new_data)               
+                # проверяем, есть ли id в данных
                 for id_value in ids:
-                    if str(id_value) in json.dumps(old_data) or str(id_value) in json.dumps(new_data):
+                    old_id = old_data.get("id")
+                    new_id = new_data.get("id")
+                    
+
+                    match = (str(id_value) == str(old_id)) or (str(id_value) == str(new_id))
+                    print(match)
+                    if match:
                         c, width, height = canvases[id_value]
                         y = positions[id_value]
 
@@ -148,7 +216,8 @@ class ReportBuilder:
 
                         positions[id_value] = y
 
-        # сохраняем все PDF
+                        # сохраняем все PDF
         for id_value, (c, _, _) in canvases.items():
             c.save()
-        return filepath
+
+        return [os.path.join(output_dir, f"{slot_name}_{table}_{id_value}.pdf") for id_value in ids]
