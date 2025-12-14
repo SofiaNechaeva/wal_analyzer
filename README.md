@@ -148,11 +148,14 @@ host replication all 0.0.0.0/0 trust
 подключение к БД из терминала происходит путём ввода команды **sudo -u postgres psql**,
 для подключения к БД из приложения нужно создать отдельного пользователя
 и выдать ему права на доступ к БД, в том числе на репликацию.
+
 Делается это при помощи следующих команд:
 
+```conf
 CREATE ROLE test_user WITH PASSWORD <пароль>;
 GRANT ALL PRIVILEGES ON TABLE my_table TO test_user;
 ALTER ROLE test_user REPLICATION;
+```
 
 ### 4. Запуск приложения
 - В корне проекта выполните:
