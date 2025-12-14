@@ -12,7 +12,38 @@ from reportlab.pdfbase.ttfonts import TTFont
 import json
 import os
 
-pdfmetrics.registerFont(TTFont("Arial", r"C:\Windows\Fonts\arial.ttf"))
+def get_arial_font_path():
+    system = os.name
+    
+    if system == 'nt':  # Windows
+        font_path = r"C:\Windows\Fonts\arial.ttf"
+    elif system == 'posix':  # Linux, macOS
+        # Попробуем несколько возможных путей в Linux
+        possible_paths = [
+            "/usr/share/fonts/truetype/msttcorefonts/arial.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/arial.ttf",
+            "/usr/local/share/fonts/arial.ttf",
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                font_path = path
+                break
+        else:
+            # Если не нашли Arial, используем системный шрифт sans-serif
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+    else:
+        raise OSError("Неподдерживаемая операционная система")
+    
+    return font_path
+
+# Регистрация шрифта
+try:
+    font_path = get_arial_font_path()
+    pdfmetrics.registerFont(TTFont("Arial", font_path))
+except Exception as e:
+    print(f"Не удалось зарегистрировать Arial: {e}")
 
 class ReportBuilder:
     def __init__(self, slot_config: dict, db_path="wal_analyzer.db"):
