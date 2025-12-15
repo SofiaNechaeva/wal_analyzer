@@ -11,6 +11,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import json
 import os
+import matplotlib.dates as mdates
 
 def get_arial_font_path():
     system = os.name
@@ -74,18 +75,43 @@ class ReportBuilder:
             WHERE slot_name = ?
             ORDER BY bucket_start
         """, self.conn, params=(self.slot_name,))
+        print("!!!", df)
         if df.empty:
             # ничего не добавляем, просто выходим
             return
-        df['time'] = pd.to_datetime(df['bucket_start'], unit='s')
-        fig, ax = plt.subplots()
-        ax.plot(df['time'], df['count'])
+
+        df['time'] = pd.to_datetime(df['bucket_start'], unit='s', utc=True)
+        df['time'] = df['time'].dt.tz_convert('Europe/Moscow')
+
+        if len(df) == 1:
+            # добавим вторую точку с нулевым значением чуть раньше
+            earlier = df['time'].iloc[0] - pd.Timedelta(minutes=1)
+            df = pd.concat([pd.DataFrame({'time': [earlier], 'count': [0]}), df])
+
+        # Matplotlib версия (для PDF)
+        fig, ax = plt.subplots(figsize=(10, 5))
+        ax.plot(df['time'], df['count'], marker='o')
         ax.set_title("Активность по времени")
         ax.set_xlabel("Время")
         ax.set_ylabel("События")
+        ax.tick_params(axis='x', labelrotation=45)
+        ax.xaxis.set_major_locator(mdates.AutoDateLocator(minticks=3, maxticks=6))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%d.%m %H:%M'))
         self.plots.append(fig)
 
-        fig_plotly = px.line(df, x='time', y='count', title='Активность по времени')
+        # Plotly версия (для HTML)
+        fig_plotly = px.line(
+            df, x='time', y='count',
+            title='Активность по времени',
+            markers=True
+        )
+        fig_plotly.update_layout(
+            xaxis=dict(
+                tickformat="%d.%m %H:%M",
+                tickangle=45,
+                nticks=6
+            )
+        )
         self.plotly_figs.append(fig_plotly)
 
     def heatmap_tables(self):

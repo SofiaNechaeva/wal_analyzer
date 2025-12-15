@@ -4,15 +4,13 @@ import psycopg2
 from tkinter import *
 from tkinter import ttk
 from logical_slot import LogicalSlot
-from controller import main_function, create_slot, worker_fetch_loop, worker_stop_correct, run_analysis_core
-from logical_slot import test_connection
-from logical_slot import get_tables
-from metabd import init_sqlite, load_connections_data, save_connection
+from controller import *
+from metabd import *
 import signal, sys
 import traceback
 import random
 import threading
-import time
+import datetime
 import queue
 import psycopg2
 import gc
@@ -77,7 +75,7 @@ class WalAnalyzerApp:
     def on_tab_changed(self, event):
         tab = event.widget.tab(event.widget.select(), "text")
         if tab == "Подключения":
-            print('Нет, ну я пробывал')
+            # print('Нет, ну я пробывал')
             self.load_connections()
 
     # --- генерация имени подключения ---
@@ -122,7 +120,7 @@ class WalAnalyzerApp:
             "host": self.entries["Хост:"].get(),
             "port": self.entries["Порт:"].get(),
         }
-        result = test_connection(self.db_config)
+        result = check_connection(self.db_config)
         self.msg_var.set(result)
         if "успешно" in result:
             self.load_tables()
@@ -206,8 +204,8 @@ class WalAnalyzerApp:
         self.tables_list.pack(side=LEFT, fill=BOTH, expand=True)
         scroll_tables.pack(side=RIGHT, fill=Y)
 
-        ttk.Label(left_frame, text="Период (часов):").grid(row=2, column=0, sticky=W, pady=5)
-        self.period_spin = Spinbox(left_frame, from_=1, to=168, increment=1)
+        ttk.Label(left_frame, text="Период (секунд):").grid(row=2, column=0, sticky=W, pady=5)
+        self.period_spin = Spinbox(left_frame, from_=60, to=200, increment=1)
         self.period_spin.grid(row=3, column=0, sticky="we", pady=5)
 
         ttk.Label(left_frame, text="Типы операций:").grid(row=4, column=0, sticky=W, pady=5)
@@ -234,9 +232,9 @@ class WalAnalyzerApp:
 
         self.analysis_type = StringVar(value="summary")
 
-        ttk.Radiobutton(right_frame, text="Сводка",
+        ttk.Radiobutton(right_frame, text="Сводка - графики для выбранных таблиц и операций",
                         variable=self.analysis_type, value="summary").grid(row=1, column=0, sticky=W, pady=3)
-        ttk.Radiobutton(right_frame, text="История изменений",
+        ttk.Radiobutton(right_frame, text="История изменений для конкретных записей",
                         variable=self.analysis_type, value="history").grid(row=2, column=0, sticky=W, pady=3)
         ttk.Radiobutton(right_frame, text="Полные изменения",
                         variable=self.analysis_type, value="full").grid(row=3, column=0, sticky=W, pady=3)
@@ -258,7 +256,7 @@ class WalAnalyzerApp:
         self.history_table_choice = ttk.Combobox(self.frame_history, state="readonly")
         self.history_table_choice.grid(row=0, column=1, sticky="we", padx=5, pady=5)
 
-        ttk.Label(self.frame_history, text="Значения ключей через ;").grid(row=1, column=0, sticky=W, padx=5, pady=5)
+        ttk.Label(self.frame_history, text="Значения первичных ключей через ;").grid(row=1, column=0, sticky=W, padx=5, pady=5)
         self.history_value_entry = ttk.Entry(self.frame_history)
         self.history_value_entry.grid(row=1, column=1, sticky="we", padx=5, pady=5)
         

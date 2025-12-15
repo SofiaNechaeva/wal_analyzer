@@ -7,44 +7,9 @@ import sqlite3
 from reportbuilder import ReportBuilder
 import os
 from datetime import datetime
+import traceback
 
 
-
-def test_connection(db_config: dict) -> str:
-    try:
-        conn = psycopg2.connect(**db_config)
-        conn.autocommit = True
-
-        with conn.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM pg_replication_slots;")
-            count = cur.fetchone()[0]
-
-        conn.close()
-
-        if count >= 10:
-            return "Подключение успешно! Но вы не можете запросить новый анализ. Достигнуто максимальное количество слотов (10)."
-        else:
-            return "Подключение успешно! Можете запросить новый анализ."
-    except OperationalError as e:
-        return f"Ошибка подключения: {e}"
-    except Exception as e:
-        return f"Ошибка: {e}"
-
-def get_tables(db_config: dict) -> list[str]:
-    try:
-        conn = psycopg2.connect(**db_config)
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = 'public'
-                ORDER BY table_name;
-            """)
-            tables = [row[0] for row in cur.fetchall()]
-        conn.close()
-        return tables
-    except Exception as e:
-        return [f"Ошибка: {e}"]
 
 
 class LogicalSlot:
@@ -69,8 +34,13 @@ class LogicalSlot:
         if self.slot_config["history_value"]:
             self.ids = [v.strip() for v in self.slot_config["history_value"].split(";") if v.strip()]
 
-        if self.slot_config["masks_fields"]:
-            self.masks_fields = [f.strip() for f in self.slot_config["masks_fields"].split(";") if f.strip()]
+        if self.slot_config.get("masks_fields"):
+            if isinstance(self.slot_config["masks_fields"], str):
+                self.masks_fields = [f.strip() for f in self.slot_config["masks_fields"].split(";") if f.strip()]
+            elif isinstance(self.slot_config["masks_fields"], list):
+                self.masks_fields = [f.strip() for f in self.slot_config["masks_fields"] if f.strip()]
+            else:
+                self.masks_fields = []
 
         print(self.port, self.slot_name, self.plugin)
         
@@ -195,7 +165,7 @@ class LogicalSlot:
                 return f"reports pdf in {result}"
             except Exception as e:
                 print(f"Ошибка в блоке history: {e}")
-            
+            return "Такие первичные ключи не существуют или др. ошибка ввода"
         return 1
 
 
@@ -230,6 +200,7 @@ class LogicalSlot:
             return result
         except Exception as e:
             print(f"Ошибка в блоке summary: {e}")
+            traceback.print_exc()
     
     def fetch_events_full_save(self):
         # фильтры из конфигурации

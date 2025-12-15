@@ -3,9 +3,7 @@ from frontend import WalAnalyzerApp
 from metabd import init_sqlite
 
 def main():
-
     init_sqlite()
-
     root = Tk()
     app = WalAnalyzerApp(root)
     root.mainloop()

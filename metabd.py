@@ -7,6 +7,42 @@ from dateutil import parser
 
 DB_FILE = "wal_analyzer.db"
 
+def check_connection(db_config: dict) -> str:
+    try:
+        conn = psycopg2.connect(**db_config)
+        conn.autocommit = True
+
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM pg_replication_slots;")
+            count = cur.fetchone()[0]
+
+        conn.close()
+
+        if count >= 10:
+            return "Подключение успешно! Но вы не можете запросить новый анализ. Достигнуто максимальное количество слотов (10)."
+        else:
+            return "Подключение успешно! Можете запросить новый анализ."
+    except psycopg2.OperationalError as e:
+        return f"Ошибка подключения: {e}"
+    except Exception as e:
+        return f"Ошибка: {e}"
+
+def get_tables(db_config: dict) -> list[str]:
+    try:
+        conn = psycopg2.connect(**db_config)
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                ORDER BY table_name;
+            """)
+            tables = [row[0] for row in cur.fetchall()]
+        conn.close()
+        return tables
+    except Exception as e:
+        return [f"Ошибка: {e}"]
+
 def init_sqlite():
     conn = sqlite3.connect(DB_FILE)
     cur = conn.cursor()
@@ -307,11 +343,11 @@ def aggregate_jsonl_to_sqlite(
     conn.commit()
     conn.close()
 
-    # После агрегации можно удалять исходный JSONL
-    try:
-        os.remove(jsonl_path)
-    except OSError as e:
-        print(f"Не удалось удалить {jsonl_path}: {e}")
+    # # После агрегации можно удалять исходный JSONL
+    # try:
+    #     os.remove(jsonl_path)
+    # except OSError as e:
+    #     print(f"Не удалось удалить {jsonl_path}: {e}")
 
 
 def save_wal_changes_to_log(db_config, slot_name, filters=None):
