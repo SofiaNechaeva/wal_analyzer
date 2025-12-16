@@ -256,7 +256,7 @@ def aggregate_jsonl_to_sqlite(
     slot_name: str,
     period_hours: int
 ):
-    period_seconds = period_hours * 3600
+    period_seconds = period_hours
 
     if not os.path.exists(jsonl_path):
         print(f"Файл {jsonl_path} не найден, пропускаем.")
@@ -343,11 +343,11 @@ def aggregate_jsonl_to_sqlite(
     conn.commit()
     conn.close()
 
-    # # После агрегации можно удалять исходный JSONL
-    # try:
-    #     os.remove(jsonl_path)
-    # except OSError as e:
-    #     print(f"Не удалось удалить {jsonl_path}: {e}")
+    # После агрегации можно удалять исходный JSONL
+    try:
+        os.remove(jsonl_path)
+    except OSError as e:
+        print(f"Не удалось удалить {jsonl_path}: {e}")
 
 
 def save_wal_changes_to_log(db_config, slot_name, filters=None):

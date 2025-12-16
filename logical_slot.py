@@ -209,6 +209,11 @@ class LogicalSlot:
                 "ops": self.slot_config.get("operations") or ["INSERT","UPDATE","DELETE"]
             }
         if self.slot_config["save_target"] == "disk":
+        # проверка пути
+            disk_path = self.slot_config["disk_path"]
+            if not os.path.isdir(disk_path):
+                return "Такой путь не существует"
+
             # формируем имя файла
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 

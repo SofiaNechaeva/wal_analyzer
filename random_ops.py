@@ -46,7 +46,8 @@ def run_random_ops(n_seconds: int):
                 cur.execute("UPDATE just_texts SET text = %s WHERE id = (SELECT id FROM just_texts ORDER BY random() LIMIT 1)", (rand_text,))
             elif op == "delete":
                 cur.execute("DELETE FROM just_texts WHERE id = (SELECT id FROM just_texts ORDER BY random() LIMIT 1)")
-        print('.', end='')
+        
+        print('.', end='', flush=True)
         time.sleep(0.5)
 
     cur.close()
