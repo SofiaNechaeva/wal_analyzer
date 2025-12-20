@@ -4,6 +4,7 @@ import sqlite3
 import time
 import threading
 import traceback
+import matplotlib
 
 db_config = {
     'dbname': 'mydb',
@@ -100,10 +101,7 @@ def create_slot(slot_name):
     return analysys
 
 def worker_fetch_loop(result_queue, analysys, slot_config, duration_seconds, interval_seconds):
-    print("Я работник, я работаю)")
-    import matplotlib
-    matplotlib.use("Agg")  # безголовой режим для графиков
-    """Фоновый поток: повторяет fetch пока не истечёт duration_seconds"""
+    matplotlib.use("Agg")  
     result = None
     start_time = time.time()
     while time.time() - start_time < duration_seconds:
@@ -123,16 +121,16 @@ def worker_fetch_loop(result_queue, analysys, slot_config, duration_seconds, int
         print("в потоке ", result)
 
         time.sleep(interval_seconds)
-    
-    # по окончании работы — положить результат
-    # try:
-    #     result_queue.put(result)
-    # except Exception as e:
-    #     print("Ошибка при помещении в очередь:", e)
-
-    # по окончании работы — завершение
     worker_stop_correct(slot_config, analysys, result)
 
+def run_analysis_core(db_config, slot_config, result_queue):
+    analysys = create_slot(slot_config['slot_name'])
+
+    worker_thread = threading.Thread(
+        target=worker_fetch_loop,
+        args=(result_queue, analysys, slot_config, slot_config["period_hours"], 30),
+    )
+    worker_thread.start()
 
 def worker_stop_correct(slot_config, analysys, result):
     try:
@@ -144,11 +142,3 @@ def worker_stop_correct(slot_config, analysys, result):
         print("Ошибка при завершении:", e)
 
 
-def run_analysis_core(db_config, slot_config, result_queue):
-    analysys = create_slot(slot_config['slot_name'])
-
-    worker_thread = threading.Thread(
-        target=worker_fetch_loop,
-        args=(result_queue, analysys, slot_config, slot_config["period_hours"], 30),
-    )
-    worker_thread.start()

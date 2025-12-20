@@ -104,9 +104,9 @@ class LogicalSlot:
                             for tx in change.get('change', []):
                                 # --- фильтрация ---
                                 if filters:
-                                    tables = filters.get("tables") or []   # если пусто → все таблицы
-                                    ops = filters.get("ops") or []         # если пусто → все операции
-                                    ids = filters.get("ids") or []         # если пусто → все Id
+                                    tables = filters.get("tables") or []   
+                                    ops = filters.get("ops") or []         
+                                    ids = filters.get("ids") or []         
 
                                     # фильтр по таблице
                                     if tables and tx.get("table") not in tables:
@@ -195,13 +195,13 @@ class LogicalSlot:
                 path_html = os.path.join(path, html_name)
                 builder.save_html(path_html)
                 result += path_html + ";"
-                
+            
             result = result if result else "Не выбрано расширение для отчета"
             return result
         except Exception as e:
             print(f"Ошибка в блоке summary: {e}")
             traceback.print_exc()
-    
+
     def fetch_events_full_save(self):
         # фильтры из конфигурации
         filters = {

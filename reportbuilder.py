@@ -59,7 +59,6 @@ class ReportBuilder:
             WHERE slot_name = ?
         """, self.conn, params=(self.slot_name,))
         if df.empty:
-            # ничего не добавляем, просто выходим
             return
         fig, ax = plt.subplots()
         ax.pie(df['count'], labels=df['operation'], autopct='%1.1f%%', startangle=90)
@@ -75,7 +74,7 @@ class ReportBuilder:
             WHERE slot_name = ?
             ORDER BY bucket_start
         """, self.conn, params=(self.slot_name,))
-        print("!!!", df)
+        print(df.shape)
         if df.empty:
             # ничего не добавляем, просто выходим
             return

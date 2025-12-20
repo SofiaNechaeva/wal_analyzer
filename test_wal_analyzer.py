@@ -1,25 +1,24 @@
 import pytest
 import os
 import json
-from metabd import check_connection, drop_current_slot, get_pg_slots, aggregate_jsonl_to_sqlite
+from metabd import check_connection, drop_current_slot, aggregate_jsonl_to_sqlite
 from reportbuilder import ReportBuilder
 from logical_slot import LogicalSlot
 import sqlite3
 import pytest
 
-# --- фиктивные конфигурации ---
-VALID_DB = {
-    "dbname": "testdb",
-    "user": "postgres",
-    "password": "correct_password",
-    "host": "localhost",
-    "port": 5432
-}
-
 INVALID_DB = {
     "dbname": "wrongdb",
     "user": "postgres",
     "password": "wrong_password",
+    "host": "localhost",
+    "port": 5432
+}
+
+VALID_DB = {
+    "dbname": "testdb",
+    "user": "postgres",
+    "password": "correct_password",
     "host": "localhost",
     "port": 5432
 }
